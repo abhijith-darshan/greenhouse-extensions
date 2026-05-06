@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2025 SAP SE or an SAP affiliate company and Greenhouse contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Plugin Release
+
+on:
+  repository_dispatch:
+    types:
+      - plugin_release
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-plugin-definition:
+    name: Update plugin definition version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Update .spec.helmChart.version
+        run: |
+          yq -i '.spec.helmChart.version = "${{ github.event.client_payload.version }}"' \
+            ${{ github.event.client_payload.plugin_definition }}/plugindefinition.yaml
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          commit-message: "chore(${{ github.event.client_payload.plugin_definition }}): bump helmChart version to ${{ github.event.client_payload.version }}"
+          branch: "release/${{ github.event.client_payload.plugin_definition }}-${{ github.event.client_payload.version }}"
+          title: "chore(${{ github.event.client_payload.plugin_definition }}): bump helmChart version to ${{ github.event.client_payload.version }}"
+          body: |
+            Automated version bump for `${{ github.event.client_payload.plugin_definition }}` triggered by a plugin release dispatch.
+
+            - **Plugin:** `${{ github.event.client_payload.plugin_definition }}`
+            - **Version:** `${{ github.event.client_payload.version }}`
