@@ -11,5 +11,4 @@ spec:
   helmChart:
     name: shoot-grafter
     repository: oci://ghcr.io/cloudoperators/greenhouse-extensions/charts
-    version: 0.3.0
-  
+    version: 0.3.2
