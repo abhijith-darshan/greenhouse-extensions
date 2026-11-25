@@ -6,8 +6,8 @@ name: Manual Plugin OCI Release
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Plugin release tag in format pluginName/version (e.g. kube-monitoring/17.0.2)'
+      tags:
+        description: 'Comma-separated plugin release tags, each in format pluginName/version (e.g. thanos/0.14.1, trust-manager/0.24.4)'
         required: true
         type: string
 
@@ -15,46 +15,82 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  release:
+  prepare:
     runs-on: [ubuntu-latest]
     permissions:
       contents: read
-      packages: write
+    outputs:
+      matrix: ${{ steps.parse.outputs.matrix }}
     steps:
-      - name: Parse and validate tag format
+      - name: Parse and validate tags
         id: parse
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const tag = '${{ inputs.tag }}';
-            const slashIdx = tag.lastIndexOf('/');
+            const raw = `${{ inputs.tags }}`;
+            const reserved = new Set(['.github', 'LICENSES']);
+            const items = [];
+            const errors = [];
 
-            if (slashIdx <= 0 || slashIdx === tag.length - 1) {
-              core.setFailed(`Tag must be in format 'pluginName/version' (got: ${tag})`);
+            const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0);
+
+            if (tags.length === 0) {
+              core.setFailed('No tags provided');
               return;
             }
 
-            const pluginName = tag.substring(0, slashIdx);
-            const pluginVersion = tag.substring(slashIdx + 1);
+            for (const tag of tags) {
+              const slashIdx = tag.lastIndexOf('/');
+              if (slashIdx <= 0 || slashIdx === tag.length - 1) {
+                errors.push(`'${tag}': must be in format 'pluginName/version'`);
+                continue;
+              }
 
-            core.setOutput('plugin_name', pluginName);
-            core.setOutput('plugin_version', pluginVersion);
-            core.info(`Parsed: name=${pluginName} version=${pluginVersion}`);
+              const name = tag.substring(0, slashIdx);
+              const version = tag.substring(slashIdx + 1);
 
+              if (reserved.has(name)) {
+                errors.push(`'${tag}': '${name}' is a reserved directory and cannot be released`);
+                continue;
+              }
+
+              items.push({ tag, name, version });
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(`Invalid tag(s):\n - ${errors.join('\n - ')}`);
+              return;
+            }
+
+            core.setOutput('matrix', JSON.stringify(items));
+            core.info(`Releasing ${items.length} plugin(s): ${items.map(i => i.tag).join(', ')}`);
+
+  release:
+    needs: [prepare]
+    runs-on: [ubuntu-latest]
+    permissions:
+      contents: read
+      packages: write
+    name: Release ${{ matrix.item.tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        item: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
       - name: Checkout repository at tag
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ matrix.item.tag }}
 
       - name: Validate plugin directory
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
-            const plugin = '${{ steps.parse.outputs.plugin_name }}';
+            const plugin = '${{ matrix.item.name }}';
 
             if (!fs.existsSync(plugin)) {
-              core.setFailed(`Plugin directory '${plugin}' does not exist at tag '${{ inputs.tag }}'`);
+              core.setFailed(`Plugin directory '${plugin}' does not exist at tag '${{ matrix.item.tag }}'`);
               return;
             }
 
@@ -86,8 +122,8 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const plugin = '${{ steps.parse.outputs.plugin_name }}';
-            const version = '${{ steps.parse.outputs.plugin_version }}';
+            const plugin = '${{ matrix.item.name }}';
+            const version = '${{ matrix.item.version }}';
             const target = `${{ env.REGISTRY }}/${{ github.repository }}/plugin-definition-${plugin}:${version}`;
 
             await exec.exec('oras', [
