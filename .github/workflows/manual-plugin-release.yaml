@@ -124,7 +124,7 @@ jobs:
           script: |
             const plugin = '${{ matrix.item.name }}';
             const version = '${{ matrix.item.version }}';
-            const target = `${{ env.REGISTRY }}/${{ github.repository }}/plugin-definition-${plugin}:${version}`;
+            const target = `${{ env.REGISTRY }}/${{ github.repository }}/plugindefinition/${plugin}:${version}`;
 
             await exec.exec('oras', [
               'push', target,
@@ -132,4 +132,4 @@ jobs:
               `${plugin}/plugindefinition.yaml:application/vnd.greenhouse.plugindefinition.v1+yaml`,
             ]);
 
-            core.info(`Published plugin-definition-${plugin}:${version} → ${target}`);
+            core.info(`Published plugindefinition/${plugin}:${version} → ${target}`);
